@@ -6,7 +6,7 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTDcviwtkVjuk2SZc9Ma4lxdRYAesg6vcHkVsoZwmmQAZ58LBP_hLGvjUDg5wziX7M6IAIHvF9N1yuU/pub?gid=91396847&single=true&output=csv"
     try:
         df = pd.read_csv(sheet_url)
-        # Clean currency for logic
+        # Convert cost to numeric for logic
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         return df
     except Exception as e:
@@ -27,7 +27,7 @@ def get_recommendations(df, user_input):
                 match_flags.append("Goal Match")
             else: continue
             
-        # Weighted Matches
+        # Matches
         if user_input['mode'] != "N/A" and row['Delivery Mode'] == user_input['mode']:
             score += 15
             match_flags.append("Mode")
@@ -35,7 +35,7 @@ def get_recommendations(df, user_input):
             score += 20
             match_flags.append("Country")
         
-        # Budget Logic
+        # Budget Tiering
         cost = row['Total Tuition Cost (USD)']
         tier = user_input['tier']
         in_tier = False
@@ -60,61 +60,87 @@ def get_recommendations(df, user_input):
         })
     return sorted(results, key=lambda x: x['Score'], reverse=True)
 
-# --- 3. PREMIUM UI ---
+# --- 3. THE PREMIUM INTERFACE ---
 def main():
     st.set_page_config(page_title="EdPro Navigator", layout="wide", page_icon="🛡️")
 
-    # Custom CSS for EdPro Brand Identity
+    # CUSTOM CSS: EdPro Navy Theme + High Visibility
     st.markdown("""
         <style>
-        /* Background & Text Colors */
-        .stApp { background-color: #F8FAFC; } /* Clean light grey background */
-        h1 { color: #1E3A8A !important; font-weight: 800; text-align: center; } /* Navy Blue Title */
-        .stSelectbox label { color: #1E3A8A !important; font-weight: bold; font-size: 16px; } /* Visible Labels */
-        
-        /* Centered Button Styling */
-        .stButton>button { 
-            width: 100%; border-radius: 12px; background-color: #1E3A8A; 
-            color: white; height: 3.5em; font-weight: bold; font-size: 18px; 
-            border: none; margin-top: 20px;
+        /* Force Background to EdPro Navy */
+        .stApp { 
+            background-color: #1E3A8A !important; 
         }
-        .stButton>button:hover { background-color: #172554; color: #FFFFFF; }
+        
+        /* Force All Text to White */
+        h1, h2, h3, p, span, label, .stMarkdown { 
+            color: #FFFFFF !important; 
+        }
 
-        /* Card Styling for Results */
-        .stExpander { 
-            border: 1px solid #CBD5E1; border-radius: 15px; 
-            background-color: #FFFFFF !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        /* Styling Dropdown Labels specifically for visibility */
+        .stSelectbox label p {
+            color: #FFFFFF !important;
+            font-size: 18px !important;
+            font-weight: bold !important;
+        }
+
+        /* Search Button Styling */
+        .stButton>button { 
+            width: 100%; 
+            border-radius: 10px; 
+            background-color: #FFFFFF; 
+            color: #1E3A8A !important; 
+            height: 3.5em; 
+            font-weight: bold; 
+            font-size: 18px; 
+            border: none;
+            margin-top: 25px;
+        }
+        .stButton>button:hover {
+            background-color: #E2E8F0;
+            color: #1E3A8A !important;
+        }
+
+        /* Results Card Background */
+        .stExpander {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            border-radius: 12px;
+        }
+        
+        /* Metric values inside cards */
+        div[data-testid="stMetricValue"] {
+            color: #FFFFFF !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
     # Title Section
-    st.markdown("<h1>🛡️ EdPro AI Navigator</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #64748B; margin-bottom: 50px;'>Internal Consultant Decision Support Engine</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; margin-bottom: 0px;'>🛡️ EdPro AI Navigator</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; font-size: 1.2em; opacity: 0.8; margin-bottom: 50px;'>Internal Consultant Decision Support Engine</p>", unsafe_allow_html=True)
 
     df = load_data()
     if df is None: return
 
     # --- CENTERED 4-OPTION INPUT LINE ---
-    # We use a container and columns to align them in the middle
-    input_container = st.container()
-    with input_container:
+    with st.container():
         col1, col2, col3, col4 = st.columns(4)
-        with col1: in_type = st.selectbox("Academic Goal", ["N/A", "Bridge", "Work-Ready"])
-        with col2: in_country = st.selectbox("Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
-        with col3: in_mode = st.selectbox("Mode", ["N/A", "Offline", "Online", "Hybrid"])
-        with col4: in_tier = st.selectbox("Budget Tier", ["N/A", "Tier 1 ($0-$3k)", "Tier 2 ($3k-$7k)", "Tier 3 ($7k-$12k)", "Tier 4 ($12k+)"])
+        with col1: in_type = st.selectbox("🎯 Academic Goal", ["N/A", "Bridge", "Work-Ready"])
+        with col2: in_country = st.selectbox("🌍 Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
+        with col3: in_mode = st.selectbox("💻 Mode", ["N/A", "Offline", "Online", "Hybrid"])
+        with col4: in_tier = st.selectbox("💰 Budget Tier", ["N/A", "Tier 1 ($0-$3k)", "Tier 2 ($3k-$7k)", "Tier 3 ($7k-$12k)", "Tier 4 ($12k+)"])
 
-    # Center-aligned Search Button
-    _, mid_col, _ = st.columns([1, 2, 1])
+    # Center Button
+    _, mid_col, _ = st.columns([1, 1, 1])
     with mid_col:
-        search_clicked = st.button("Find Matching Pathways")
+        search_clicked = st.button("RUN MATCHING ENGINE")
 
     if search_clicked:
         recs = get_recommendations(df, {'type': in_type, 'country': in_country, 'mode': in_mode, 'tier': in_tier})
         
         if recs:
-            st.markdown("### Optimized Results")
+            st.markdown("---")
+            st.markdown("### 🏆 Optimized Pathway Recommendations")
             for r in recs[:5]:
                 with st.expander(f"✨ {r['Institution']} — {r['Program']}"):
                     c1, c2, c3, c4 = st.columns(4)
@@ -122,12 +148,10 @@ def main():
                     c2.metric("Visa Safety", r['Visa'])
                     c3.metric("Duration", f"{r['Duration']} Mo")
                     c4.metric("Location", r['Country'])
-                    st.divider()
                     st.write(f"📅 **Intakes:** {r['Intake']} | 📝 **Requirements:** {r['Requirements']}")
-                    st.caption(f"**Relevancy Factors:** {r['Factors']}")
+                    st.caption(f"**Factors:** {r['Factors']}")
         else:
-            st.warning("No matches found. Try relaxing your filters.")
+            st.warning("No matches found. Try setting more options to N/A.")
 
 if __name__ == "__main__":
     main()
-    

@@ -6,7 +6,7 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTDcviwtkVjuk2SZc9Ma4lxdRYAesg6vcHkVsoZwmmQAZ58LBP_hLGvjUDg5wziX7M6IAIHvF9N1yuU/pub?gid=91396847&single=true&output=csv"
     try:
         df = pd.read_csv(sheet_url)
-        # Clean currency for logic
+        # Clean currency
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         return df
     except Exception as e:
@@ -54,66 +54,63 @@ def get_recommendations(df, user_input):
         })
     return sorted(results, key=lambda x: x['Score'], reverse=True)
 
-# --- 3. PREMIUM UI ---
+# --- 3. UI LAYOUT ---
 def main():
     st.set_page_config(page_title="EdPro Navigator", layout="centered", page_icon="🛡️")
 
-    # CUSTOM CSS: Darker Blue Theme + Vertical Stack Alignment
+    # CUSTOM CSS: Midnight Blue + Gold Button + Ghosting Fix
     st.markdown("""
         <style>
-        /* Midnight Blue Background */
+        /* Midnight Blue Background & Text Visibility Fix */
         .stApp { 
             background-color: #0A192F !important; 
+            opacity: 1 !important;
         }
         
-        /* Force All Text to Pure White */
+        /* Eliminate any background 'ghosting' by hiding default elements */
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
         h1, h2, h3, p, span, label, .stMarkdown { 
             color: #FFFFFF !important; 
+            text-shadow: none !important; /* Fixes potential ghosting look */
         }
 
-        /* Styling Selectbox Labels */
         .stSelectbox label p {
             color: #FFFFFF !important;
             font-size: 20px !important;
             font-weight: bold !important;
-            margin-bottom: 10px;
         }
 
-        /* Center Content Styling */
-        .main-block {
-            max-width: 600px;
-            margin: auto;
-        }
-
-        /* Large Search Button */
+        /* PREMIUM GOLD BUTTON (Matching Agent) */
         .stButton>button { 
             width: 100%; 
             border-radius: 12px; 
-            background-color: #FFFFFF; 
+            background-color: #FFB800; /* Gold/Amber */
             color: #0A192F !important; 
-            height: 4em; 
-            font-weight: bold; 
-            font-size: 20px; 
+            height: 4.2em; 
+            font-weight: 800; 
+            font-size: 22px; 
             border: none;
             margin-top: 30px;
-            box-shadow: 0px 4px 15px rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            box-shadow: 0px 4px 20px rgba(255, 184, 0, 0.3);
         }
         .stButton>button:hover {
-            background-color: #E2E8F0;
-            color: #0A192F !important;
+            background-color: #FFD363;
+            transform: translateY(-2px);
+            box-shadow: 0px 6px 25px rgba(255, 184, 0, 0.5);
         }
 
-        /* Expander Results Style */
+        /* Clean Results Expanders */
         .stExpander {
-            background-color: rgba(255, 255, 255, 0.05) !important;
+            background-color: rgba(255, 255, 255, 0.08) !important;
             border: 1px solid rgba(255, 255, 255, 0.2) !important;
             border-radius: 15px;
             margin-bottom: 15px;
         }
         
-        div[data-testid="stMetricValue"] {
-            color: #FFFFFF !important;
-        }
+        div[data-testid="stMetricValue"] { color: #FFB800 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -124,17 +121,16 @@ def main():
     df = load_data()
     if df is None: return
 
-    # --- VERTICAL 4-LINE INPUTS ---
-    # Centering the inputs by using a narrow column layout
+    # --- VERTICAL STACK INPUTS ---
     _, center_col, _ = st.columns([1, 4, 1])
     
     with center_col:
-        in_type = st.selectbox("🎯 What is the Academic Goal?", ["N/A", "Bridge", "Work-Ready"])
-        in_country = st.selectbox("🌍 Select Preferred Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
-        in_mode = st.selectbox("💻 Preferred Delivery Mode", ["N/A", "Offline", "Online", "Hybrid"])
-        in_tier = st.selectbox("💰 Select Budget Tier", ["N/A", "Tier 1 ($0-$3k)", "Tier 2 ($3k-$7k)", "Tier 3 ($7k-$12k)", "Tier 4 ($12k+)"])
+        in_type = st.selectbox("🎯 Academic Goal", ["N/A", "Bridge", "Work-Ready"])
+        in_country = st.selectbox("🌍 Preferred Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
+        in_mode = st.selectbox("💻 Delivery Mode", ["N/A", "Offline", "Online", "Hybrid"])
+        in_tier = st.selectbox("💰 Budget Tier", ["N/A", "Tier 1 ($0-$3k)", "Tier 2 ($3k-$7k)", "Tier 3 ($7k-$12k)", "Tier 4 ($12k+)"])
         
-        search_clicked = st.button("RUN MATCHING ENGINE")
+        search_clicked = st.button("RUN MATCHING AGENT")
 
     # --- RESULTS ---
     if search_clicked:
@@ -149,10 +145,11 @@ def main():
                     c2.metric("Visa Safety", r['Visa'])
                     c3.metric("Duration", f"{r['Duration']} Mo")
                     c4.metric("Location", r['Country'])
+                    st.divider()
                     st.write(f"📅 **Intakes:** {r['Intake']} | 📝 **Requirements:** {r['Requirements']}")
-                    st.caption(f"**Relevancy:** {r['Factors']}")
         else:
-            st.warning("No exact matches found. Try setting more filters to 'N/A'.")
+            st.warning("No matches found. Try relaxing the filters.")
 
 if __name__ == "__main__":
     main()
+    

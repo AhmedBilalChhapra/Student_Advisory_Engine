@@ -12,7 +12,7 @@ def load_data():
         st.error(f"Sync Error: {e}")
         return None
 
-# --- 2. THE INTELLIGENT MATCHING ENGINE ---
+# --- 2. THE ADVANCED MATCHING ENGINE ---
 def get_recommendations(df, user_input):
     results = []
     tier_limits = {"Tier 1 ($0-$3k)": 3000, "Tier 2 ($3k-$7k)": 7000, "Tier 3 ($7k-$12k)": 12000, "Tier 4 ($12k+)": 999999}
@@ -22,30 +22,33 @@ def get_recommendations(df, user_input):
         match_flags = []
         title = str(row['Diploma Title']).lower()
         
-        # A. GOAL FILTER
+        # A. SEARCH BAR / KEYWORD LOGIC (New Priority)
+        if user_input['keyword']:
+            keywords = user_input['keyword'].lower().split()
+            if any(k in title for k in keywords):
+                score += 60 # Highest priority
+                match_flags.append(f"Keyword Match: {user_input['keyword']}")
+
+        # B. SUBJECT DROPDOWN LOGIC
+        requested_subject = user_input['subject'].lower()
+        if requested_subject != "n/a":
+            subj_keywords = [requested_subject]
+            if requested_subject == "business": subj_keywords += ["management", "accounting", "commerce", "marketing"]
+            if requested_subject == "tech": subj_keywords += ["ict", "computing", "software", "it", "computer"]
+            if requested_subject == "engineering": subj_keywords += ["mechanical", "civil", "electrical"]
+            
+            if any(k in title for k in subj_keywords):
+                score += 40 
+                match_flags.append(f"Field: {user_input['subject']}")
+
+        # C. GOAL FILTER
         if user_input['type'] != "N/A":
             if row['Diploma Type'] == user_input['type']:
-                score += 40
+                score += 30
                 match_flags.append("Goal Match")
             else: continue
 
-        # B. SUBJECT/MAJOR LOGIC (New!)
-        # Looks for keywords in the Diploma Title
-        requested_subject = user_input['subject'].lower()
-        if requested_subject != "n/a":
-            # Map common keywords for broader matching
-            keywords = [requested_subject]
-            if requested_subject == "business": keywords += ["management", "accounting", "commerce", "marketing"]
-            if requested_subject == "tech": keywords += ["ict", "computing", "software", "it", "computer"]
-            if requested_subject == "engineering": keywords += ["mechanical", "civil", "electrical", "tech"]
-            
-            if any(k in title for k in keywords):
-                score += 50 # High boost for subject match
-                match_flags.append(f"Major: {user_input['subject']}")
-            else:
-                score -= 10 # Deprioritize unrelated subjects
-
-        # C. INCLUSIVE MODE LOGIC
+        # D. INCLUSIVE MODE LOGIC
         current_mode = row['Delivery Mode']
         requested_mode = user_input['mode']
         if requested_mode != "N/A":
@@ -56,21 +59,21 @@ def get_recommendations(df, user_input):
                 score += 10
                 match_flags.append(f"Alternative Mode ({current_mode})")
 
-        # D. INCLUSIVE BUDGET LOGIC
+        # E. INCLUSIVE BUDGET LOGIC
         cost = row['Total Tuition Cost (USD)']
         requested_tier = user_input['tier']
         if requested_tier != "N/A":
             max_budget = tier_limits[requested_tier]
             if cost <= max_budget:
                 score += 30
-                match_flags.append("Affordable")
+                match_flags.append("Budget Safe")
                 if cost <= max_budget * 0.5: score += 10
             else: continue
 
-        # E. COUNTRY & VISA
+        # F. COUNTRY & VISA
         if user_input['country'] != "N/A" and row['Country'] == user_input['country']:
             score += 20
-            match_flags.append("Location Match")
+            match_flags.append("Preferred Location")
         score += (row['Visa Success Score'] * 3)
         
         results.append({
@@ -92,8 +95,13 @@ def main():
         .stApp { background-color: #0A192F !important; opacity: 1 !important; }
         footer {visibility: hidden;} header {visibility: hidden;}
         h1, h2, h3, p, span, label, .stMarkdown { color: #FFFFFF !important; text-shadow: none !important; }
-        .stSelectbox label p { color: #FFFFFF !important; font-size: 20px !important; font-weight: bold !important; }
+        
+        /* Dropdown and Search Bar Labels */
+        .stSelectbox label p, .stTextInput label p { 
+            color: #FFFFFF !important; font-size: 19px !important; font-weight: bold !important; 
+        }
 
+        /* Gold Action Button */
         .stButton>button { 
             width: 100%; border-radius: 12px; background-color: #FFB800; 
             color: #0A192F !important; height: 4.2em; font-weight: 800; 
@@ -102,6 +110,7 @@ def main():
         }
         .stButton>button:hover { background-color: #FFD363; transform: translateY(-2px); }
 
+        /* Results Display */
         .stExpander {
             background-color: rgba(255, 255, 255, 0.08) !important;
             border: 1px solid rgba(255, 255, 255, 0.2) !important;
@@ -117,9 +126,13 @@ def main():
     df = load_data()
     if df is None: return
 
+    # --- VERTICAL STACK WITH SEARCH BAR ---
     _, center_col, _ = st.columns([1, 4, 1])
     with center_col:
-        # Added Subject/Field of Study
+        # 1. Search Bar (Free Text)
+        in_keyword = st.text_input("🔍 Search Specific Program or Keyword", placeholder="e.g. Aviation, Multimedia, Cyber...")
+        
+        # 2. Dropdowns
         in_subject = st.selectbox("📚 Field of Study", ["N/A", "Business", "Tech", "Engineering", "Arts", "Science"])
         in_type = st.selectbox("🎯 Academic Goal", ["N/A", "Bridge", "Work-Ready"])
         in_country = st.selectbox("🌍 Preferred Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
@@ -129,7 +142,9 @@ def main():
         search_clicked = st.button("RUN MATCHING AGENT")
 
     if search_clicked:
-        recs = get_recommendations(df, {'subject': in_subject, 'type': in_type, 'country': in_country, 'mode': in_mode, 'tier': in_tier})
+        user_data = {'keyword': in_keyword, 'subject': in_subject, 'type': in_type, 'country': in_country, 'mode': in_mode, 'tier': in_tier}
+        recs = get_recommendations(df, user_data)
+        
         if recs:
             st.markdown("<br><h3 style='text-align: center;'>🏆 Top Recommendations</h3>", unsafe_allow_html=True)
             for r in recs[:5]:
@@ -141,10 +156,9 @@ def main():
                     c4.metric("Location", r['Country'])
                     st.divider()
                     st.write(f"📅 **Intakes:** {r['Intake']} | 📝 **Requirements:** {r['Requirements']}")
-                    st.caption(f"**Relevancy:** {r['Factors']}")
+                    st.caption(f"**Match Factors:** {r['Factors']}")
         else:
-            st.warning("No matches found. Try relaxing the filters.")
+            st.warning("No matches found. Try clearing your search or using 'N/A' filters.")
 
 if __name__ == "__main__":
     main()
-    

@@ -6,76 +6,71 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTDcviwtkVjuk2SZc9Ma4lxdRYAesg6vcHkVsoZwmmQAZ58LBP_hLGvjUDg5wziX7M6IAIHvF9N1yuU/pub?gid=91396847&single=true&output=csv"
     try:
         df = pd.read_csv(sheet_url)
-        # Clean currency
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         return df
     except Exception as e:
         st.error(f"Sync Error: {e}")
         return None
 
-# --- 2. INCLUSIVE MATCHING ENGINE ---
+# --- 2. THE INTELLIGENT MATCHING ENGINE ---
 def get_recommendations(df, user_input):
     results = []
-    
-    # Define Tier maximums for relative matching
-    tier_limits = {
-        "Tier 1 ($0-$3k)": 3000,
-        "Tier 2 ($3k-$7k)": 7000,
-        "Tier 3 ($7k-$12k)": 12000,
-        "Tier 4 ($12k+)": 999999
-    }
+    tier_limits = {"Tier 1 ($0-$3k)": 3000, "Tier 2 ($3k-$7k)": 7000, "Tier 3 ($7k-$12k)": 12000, "Tier 4 ($12k+)": 999999}
 
     for index, row in df.iterrows():
         score = 0
         match_flags = []
+        title = str(row['Diploma Title']).lower()
         
-        # A. Goal Filter (Mandatory)
+        # A. GOAL FILTER
         if user_input['type'] != "N/A":
             if row['Diploma Type'] == user_input['type']:
                 score += 40
                 match_flags.append("Goal Match")
             else: continue
 
-        # B. INCLUSIVE MODE LOGIC
-        # If user chooses Hybrid, show Online and Offline as well.
+        # B. SUBJECT/MAJOR LOGIC (New!)
+        # Looks for keywords in the Diploma Title
+        requested_subject = user_input['subject'].lower()
+        if requested_subject != "n/a":
+            # Map common keywords for broader matching
+            keywords = [requested_subject]
+            if requested_subject == "business": keywords += ["management", "accounting", "commerce", "marketing"]
+            if requested_subject == "tech": keywords += ["ict", "computing", "software", "it", "computer"]
+            if requested_subject == "engineering": keywords += ["mechanical", "civil", "electrical", "tech"]
+            
+            if any(k in title for k in keywords):
+                score += 50 # High boost for subject match
+                match_flags.append(f"Major: {user_input['subject']}")
+            else:
+                score -= 10 # Deprioritize unrelated subjects
+
+        # C. INCLUSIVE MODE LOGIC
         current_mode = row['Delivery Mode']
         requested_mode = user_input['mode']
-        
         if requested_mode != "N/A":
             if current_mode == requested_mode:
                 score += 20
-                match_flags.append(f"Exact Mode ({current_mode})")
+                match_flags.append(f"Mode: {current_mode}")
             elif requested_mode == "Hybrid" and current_mode in ["Online", "Offline"]:
-                score += 10 # Included as a relative alternative
+                score += 10
                 match_flags.append(f"Alternative Mode ({current_mode})")
-            else:
-                # If they asked for Online specifically, we don't necessarily show Offline
-                if current_mode != requested_mode:
-                    score -= 10 
 
-        # C. INCLUSIVE BUDGET LOGIC
-        # If user chooses Tier 3, show everything in Tier 1, 2, and 3.
+        # D. INCLUSIVE BUDGET LOGIC
         cost = row['Total Tuition Cost (USD)']
         requested_tier = user_input['tier']
-        
         if requested_tier != "N/A":
             max_budget = tier_limits[requested_tier]
             if cost <= max_budget:
                 score += 30
-                match_flags.append("Inside Affordable Range")
-                # Bonus for being even cheaper than requested
-                if cost <= max_budget * 0.5:
-                    score += 10
-                    match_flags.append("High Value")
-            else:
-                continue # Strictly over budget
+                match_flags.append("Affordable")
+                if cost <= max_budget * 0.5: score += 10
+            else: continue
 
-        # D. Country Preference
+        # E. COUNTRY & VISA
         if user_input['country'] != "N/A" and row['Country'] == user_input['country']:
             score += 20
-            match_flags.append("Preferred Country")
-        
-        # E. Strategic Weight (Visa)
+            match_flags.append("Location Match")
         score += (row['Visa Success Score'] * 3)
         
         results.append({
@@ -124,14 +119,17 @@ def main():
 
     _, center_col, _ = st.columns([1, 4, 1])
     with center_col:
+        # Added Subject/Field of Study
+        in_subject = st.selectbox("📚 Field of Study", ["N/A", "Business", "Tech", "Engineering", "Arts", "Science"])
         in_type = st.selectbox("🎯 Academic Goal", ["N/A", "Bridge", "Work-Ready"])
         in_country = st.selectbox("🌍 Preferred Country", ["N/A"] + sorted(df['Country'].unique().tolist()))
         in_mode = st.selectbox("💻 Delivery Mode", ["N/A", "Offline", "Online", "Hybrid"])
         in_tier = st.selectbox("💰 Budget Tier", ["N/A", "Tier 1 ($0-$3k)", "Tier 2 ($3k-$7k)", "Tier 3 ($7k-$12k)", "Tier 4 ($12k+)"])
+        
         search_clicked = st.button("RUN MATCHING AGENT")
 
     if search_clicked:
-        recs = get_recommendations(df, {'type': in_type, 'country': in_country, 'mode': in_mode, 'tier': in_tier})
+        recs = get_recommendations(df, {'subject': in_subject, 'type': in_type, 'country': in_country, 'mode': in_mode, 'tier': in_tier})
         if recs:
             st.markdown("<br><h3 style='text-align: center;'>🏆 Top Recommendations</h3>", unsafe_allow_html=True)
             for r in recs[:5]:
@@ -143,8 +141,9 @@ def main():
                     c4.metric("Location", r['Country'])
                     st.divider()
                     st.write(f"📅 **Intakes:** {r['Intake']} | 📝 **Requirements:** {r['Requirements']}")
+                    st.caption(f"**Relevancy:** {r['Factors']}")
         else:
-            st.warning("No matches found within this budget range.")
+            st.warning("No matches found. Try relaxing the filters.")
 
 if __name__ == "__main__":
     main()

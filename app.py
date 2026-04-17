@@ -22,17 +22,11 @@ def load_data():
             
         df = pd.read_csv(io.StringIO(raw_data), engine='python', on_bad_lines='warn')
         
-        # --- CHANGE 1: ROBUST COST CLEANING ---
-        # We now strip $, commas, and stars, then split by '-' to handle ranges like "600-900"
+        # --- ROBUST COST & DURATION CLEANING ---
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].astype(str).str.replace('[\$,\*]', '', regex=True)
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].str.split('-').str[0].str.strip()
         df['Total Tuition Cost (USD)'] = pd.to_numeric(df['Total Tuition Cost (USD)'], errors='coerce').fillna(0)
-        
-        # --- CHANGE 2: SAFER DURATION PARSING ---
         df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce').fillna(1)
-        
-        # English Score Parser
-        df['IELTS_Num'] = df['English Requirement'].str.extract(r'(\d+\.\d+|\d+)').astype(float).fillna(0)
         
         return df
     except Exception as e:
@@ -48,10 +42,6 @@ def get_recommendations(df, user_input):
         score = 0
         title = str(row['Diploma Title']).lower()
         
-        # English Eligibility
-        if user_input['student_ielts'] < row['IELTS_Num']:
-            continue 
-
         # Keyword Search
         if user_input['keyword'] and any(k in title for k in user_input['keyword'].lower().split()):
             score += 60
@@ -77,11 +67,9 @@ def get_recommendations(df, user_input):
             continue
 
         duration = row['Duration (Months)']
-        # --- CHANGE 3: DIVISION GUARD ---
-        # Prevent crash if duration is accidentally set to 0 in the sheet
         monthly_cost = cost / duration if duration > 0 else cost
-        
         visa_score = row['Visa Success Score']
+        
         if visa_score >= 8: badge_color = "#22C55E" 
         elif visa_score >= 5: badge_color = "#F59E0B" 
         else: badge_color = "#EF4444" 
@@ -111,7 +99,7 @@ def main():
         .stApp { background-color: #0A192F !important; }
         footer {visibility: hidden;} header {visibility: hidden;}
         h1, h2, h3, p, span, label, .stMarkdown { color: #FFFFFF !important; }
-        .stSelectbox label p, .stTextInput label p, .stSlider label p { color: #FFFFFF !important; font-size: 18px !important; font-weight: bold !important; }
+        .stSelectbox label p, .stTextInput label p { color: #FFFFFF !important; font-size: 19px !important; font-weight: bold !important; }
         .stButton>button { width: 100%; border-radius: 12px; background-color: #FFB800; color: #0A192F !important; height: 4.2em; font-weight: 800; font-size: 22px; border: none; margin-top: 20px; }
         .stExpander { background-color: rgba(255, 255, 255, 0.08) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 15px; margin-bottom: 15px; }
         div[data-testid="stMetricValue"] { color: #FFB800 !important; }
@@ -124,29 +112,26 @@ def main():
     df = load_data()
     if df is None: return
 
+    # --- VERTICAL ALIGNED INPUTS ---
     _, center_col, _ = st.columns([1, 4, 1])
     with center_col:
-        in_keyword = st.text_input("🔍 Search Keyword", placeholder="e.g. IT, Business...")
-        in_ielts = st.slider("🎓 Student IELTS / Equivalent Score", 4.0, 9.0, 6.0, 0.5)
-        
-        c1, c2 = st.columns(2)
-        with c1: in_subject = st.selectbox("📚 Field", ["N/A", "Business", "Tech", "Engineering", "Arts"])
-        with c2: in_type = st.selectbox("🎯 Goal", ["N/A", "Bridge", "Work-Ready"])
-        
-        c3, c4 = st.columns(2)
-        with c3: in_mode = st.selectbox("💻 Mode", ["N/A", "Offline", "Online", "Hybrid"])
-        with c4: in_tier = st.selectbox("💰 Budget", ["N/A", "Tier 1", "Tier 2", "Tier 3", "Tier 4"])
+        in_keyword = st.text_input("🔍 Search Program or Keyword", placeholder="e.g. IT, Business...")
+        in_subject = st.selectbox("📚 Field of Study", ["N/A", "Business", "Tech", "Engineering", "Arts", "Science"])
+        in_type = st.selectbox("🎯 Academic Goal", ["N/A", "Bridge", "Work-Ready"])
+        in_mode = st.selectbox("💻 Delivery Mode", ["N/A", "Offline", "Online", "Hybrid"])
+        in_tier = st.selectbox("💰 Budget Tier", ["N/A", "Tier 1", "Tier 2", "Tier 3", "Tier 4"])
         
         if st.button("RUN MATCHING AGENT"):
             st.session_state.visible_count = 5 
             st.session_state.current_results = get_recommendations(df, {
-                'keyword': in_keyword, 'subject': in_subject, 'student_ielts': in_ielts, 
+                'keyword': in_keyword, 'subject': in_subject, 
                 'tier': in_tier, 'type': in_type, 'mode': in_mode
             })
 
+    # --- RESULTS DISPLAY ---
     if st.session_state.current_results:
         recs = st.session_state.current_results
-        st.markdown(f"<h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)
+        st.markdown(f"<br><h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)
         
         for r in recs[:st.session_state.visible_count]:
             with st.expander(f"✨ {r['Institution']} — {r['Program']}"):
@@ -161,8 +146,9 @@ def main():
                 st2.metric("Duration", r['Duration'])
                 st3.write(f"📅 **Intakes:**\n{r['Intake']}")
                 
+                # Requirements displayed clearly at the bottom of the card
                 st.write(f"📝 **Academic Req:** {r['Academic']}")
-                st.write(f"🇬🇧 **English Req:** {r['English']}")
+                st.write(f"🇬🇧 **English/SAT Req:** {r['English']}")
 
         if st.session_state.visible_count < len(recs):
             if st.button("SHOW 5 MORE"):
@@ -171,4 +157,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

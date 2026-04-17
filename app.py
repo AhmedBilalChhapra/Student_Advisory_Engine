@@ -2,32 +2,50 @@ import streamlit as st
 import pandas as pd
 import csv
 import sys
+import requests
+import io
+
+# --- 0. SYSTEM STABILITY ---
+# Set this globally to ensure it's always active
+csv.field_size_limit(sys.maxsize)
 
 # --- 1. DATA LOADING ---
 def load_data():
-    # SETTING SYSTEM MAXIMUMS
-    # We set this inside the function to ensure it applies every time the data refreshes
-    csv.field_size_limit(sys.maxsize)
-    
+    # New Sheet URL
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZ8Zfpv5Nb894hTEFla3MUvRO44trxtUJglUwHLMfRsV3TQr_wky0pilEqjYYozvznkkcsqYBlYl2r/pub?gid=0&single=true&output=csv"
     
     try:
-        # engine='python' is the key fix here to respect the field_size_limit
-        df = pd.read_csv(sheet_url, low_memory=False, engine='python', on_bad_lines='warn')
+        # Step A: Manually fetch the content to bypass engine "EmptyData" issues
+        response = requests.get(sheet_url)
+        response.raise_for_status() # Check if the URL is actually alive
         
-        # Clean currency
+        raw_data = response.text
+        
+        # Step B: Check if we actually got text back
+        if not raw_data.strip():
+            st.error("The Google Sheet appears to be empty. Please check your 'Publish to Web' settings.")
+            return None
+            
+        # Step C: Parse the text into a Dataframe
+        # We use io.StringIO to turn the text into a 'file' that Pandas can read
+        df = pd.read_csv(
+            io.StringIO(raw_data), 
+            engine='python', 
+            on_bad_lines='warn'
+        )
+        
+        # Step D: Standard Cleaning
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce')
-        
-        # English Score Parser
         df['IELTS_Num'] = df['English Requirement'].str.extract(r'(\d+\.\d+|\d+)').astype(float).fillna(0)
         
         return df
+
     except Exception as e:
-        st.error(f"Sync Error: {e}")
+        st.error(f"Critical Sync Error: {e}")
         return None
 
-# --- 2. MATCHING ENGINE ---
+# --- 2. THE MATCHING ENGINE ---
 def get_recommendations(df, user_input):
     results = []
     tier_limits = {"Tier 1": 3000, "Tier 2": 7000, "Tier 3": 12000, "Tier 4": 999999}
@@ -36,16 +54,13 @@ def get_recommendations(df, user_input):
         score = 0
         title = str(row['Diploma Title']).lower()
         
-        # ELIGIBILITY: English
         if user_input['student_ielts'] < row['IELTS_Num']:
             continue 
 
-        # SEARCH: Keywords
-        if user_input['keyword']:
-            if any(k in title for k in user_input['keyword'].lower().split()):
-                score += 60
+        if user_input['keyword'] and any(k in title for k in user_input['keyword'].lower().split()):
+            score += 60
 
-        # FILTERS: Subject, Goal, Mode
+        # Field matching logic
         requested_subject = user_input['subject'].lower()
         if requested_subject != "n/a":
             subj_keywords = [requested_subject]
@@ -54,22 +69,22 @@ def get_recommendations(df, user_input):
             if any(k in title for k in subj_keywords):
                 score += 40
 
+        # Goal & Mode Logic
         if user_input['type'] != "N/A" and row['Diploma Type'] != user_input['type']:
             continue
-        
         if user_input['mode'] != "N/A" and row['Delivery Mode'] != user_input['mode']:
             continue
 
-        # BUDGET TIER
+        # Budget Tier logic
         cost = row['Total Tuition Cost (USD)']
-        if user_input['tier'] != "N/A" and cost > tier_limits[user_input['tier']]:
+        if user_input['tier'] != "N/A" and cost > tier_limits.get(user_input['tier'], 999999):
             continue
 
-        # CALCULATIONS
         duration = row['Duration (Months)']
         monthly_cost = cost / duration if duration > 0 else 0
         visa_score = row['Visa Success Score']
         
+        # Badge Colors
         if visa_score >= 8: badge_color = "#22C55E" 
         elif visa_score >= 5: badge_color = "#F59E0B" 
         else: badge_color = "#EF4444" 
@@ -102,7 +117,7 @@ def main():
     """, unsafe_allow_html=True)
 
     st.markdown("<h1 style='text-align: center;'>🛡️ EdPro AI Navigator</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 30px;'>Internal Consultant Decision Support Engine — V2.0 Final</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 30px;'>Internal Consultant Decision Support Engine</p>", unsafe_allow_html=True)
 
     df = load_data()
     if df is None: return
@@ -127,6 +142,7 @@ def main():
                 'tier': in_tier, 'type': in_type, 'mode': in_mode
             })
 
+    # --- RESULTS ---
     if 'current_results' in st.session_state and st.session_state.current_results:
         recs = st.session_state.current_results
         st.markdown(f"<h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)

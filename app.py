@@ -3,45 +3,49 @@ import pandas as pd
 import csv
 import sys
 
-# --- 0. SYSTEM STABILITY FIX ---
-csv.field_size_limit(10**7) 
-
 # --- 1. DATA LOADING ---
 def load_data():
+    # SETTING SYSTEM MAXIMUMS
+    # We set this inside the function to ensure it applies every time the data refreshes
+    csv.field_size_limit(sys.maxsize)
+    
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZ8Zfpv5Nb894hTEFla3MUvRO44trxtUJglUwHLMfRsV3TQr_wky0pilEqjYYozvznkkcsqYBlYl2r/pub?gid=0&single=true&output=csv"
+    
     try:
-        df = pd.read_csv(sheet_url, low_memory=False)
+        # engine='python' is the key fix here to respect the field_size_limit
+        df = pd.read_csv(sheet_url, low_memory=False, engine='python', on_bad_lines='warn')
+        
         # Clean currency
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce')
+        
         # English Score Parser
         df['IELTS_Num'] = df['English Requirement'].str.extract(r'(\d+\.\d+|\d+)').astype(float).fillna(0)
+        
         return df
     except Exception as e:
         st.error(f"Sync Error: {e}")
         return None
 
-# --- 2. THE MASTER MATCHING ENGINE ---
+# --- 2. MATCHING ENGINE ---
 def get_recommendations(df, user_input):
     results = []
-    tier_limits = {"Tier 1 ($0-$3k)": 3000, "Tier 2 ($3k-$7k)": 7000, "Tier 3 ($7k-$12k)": 12000, "Tier 4 ($12k+)": 999999}
+    tier_limits = {"Tier 1": 3000, "Tier 2": 7000, "Tier 3": 12000, "Tier 4": 999999}
 
     for index, row in df.iterrows():
         score = 0
-        match_flags = []
         title = str(row['Diploma Title']).lower()
         
-        # A. ELIGIBILITY: English Requirement
+        # ELIGIBILITY: English
         if user_input['student_ielts'] < row['IELTS_Num']:
             continue 
 
-        # B. POWER SEARCH: Keywords
+        # SEARCH: Keywords
         if user_input['keyword']:
             if any(k in title for k in user_input['keyword'].lower().split()):
                 score += 60
-                match_flags.append("Keyword Match")
 
-        # C. SUBJECT MAPPING
+        # FILTERS: Subject, Goal, Mode
         requested_subject = user_input['subject'].lower()
         if requested_subject != "n/a":
             subj_keywords = [requested_subject]
@@ -50,27 +54,25 @@ def get_recommendations(df, user_input):
             if any(k in title for k in subj_keywords):
                 score += 40
 
-        # D. GOAL & MODE FILTERS
         if user_input['type'] != "N/A" and row['Diploma Type'] != user_input['type']:
             continue
         
-        if user_input['mode'] != "N/A":
-            if row['Delivery Mode'] == user_input['mode']: score += 20
-            elif user_input['mode'] == "Hybrid": score += 10 # Inclusive match
+        if user_input['mode'] != "N/A" and row['Delivery Mode'] != user_input['mode']:
+            continue
 
-        # E. BUDGET TIER (Cumulative)
+        # BUDGET TIER
         cost = row['Total Tuition Cost (USD)']
         if user_input['tier'] != "N/A" and cost > tier_limits[user_input['tier']]:
             continue
 
-        # F. FINANCIALS & VISA RISK
+        # CALCULATIONS
         duration = row['Duration (Months)']
         monthly_cost = cost / duration if duration > 0 else 0
         visa_score = row['Visa Success Score']
         
-        if visa_score >= 8: badge_color = "#22C55E" # Green
-        elif visa_score >= 5: badge_color = "#F59E0B" # Amber
-        else: badge_color = "#EF4444" # Red
+        if visa_score >= 8: badge_color = "#22C55E" 
+        elif visa_score >= 5: badge_color = "#F59E0B" 
+        else: badge_color = "#EF4444" 
         
         results.append({
             "Institution": row['Institution Name'], "Program": row['Diploma Title'],
@@ -125,7 +127,6 @@ def main():
                 'tier': in_tier, 'type': in_type, 'mode': in_mode
             })
 
-    # --- RESULTS ---
     if 'current_results' in st.session_state and st.session_state.current_results:
         recs = st.session_state.current_results
         st.markdown(f"<h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)
@@ -154,4 +155,3 @@ def main():
 if __name__ == "__main__":
     if 'visible_count' not in st.session_state: st.session_state.visible_count = 5
     main()
-    

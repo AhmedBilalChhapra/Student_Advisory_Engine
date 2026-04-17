@@ -6,41 +6,32 @@ import requests
 import io
 
 # --- 0. SYSTEM STABILITY ---
-# Set this globally to ensure it's always active
 csv.field_size_limit(sys.maxsize)
 
 # --- 1. DATA LOADING ---
 def load_data():
-    # New Sheet URL
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZ8Zfpv5Nb894hTEFla3MUvRO44trxtUJglUwHLMfRsV3TQr_wky0pilEqjYYozvznkkcsqYBlYl2r/pub?gid=0&single=true&output=csv"
-    
     try:
-        # Step A: Manually fetch the content to bypass engine "EmptyData" issues
         response = requests.get(sheet_url)
-        response.raise_for_status() # Check if the URL is actually alive
-        
+        response.raise_for_status() 
         raw_data = response.text
         
-        # Step B: Check if we actually got text back
         if not raw_data.strip():
-            st.error("The Google Sheet appears to be empty. Please check your 'Publish to Web' settings.")
+            st.error("Google Sheet is empty.")
             return None
             
-        # Step C: Parse the text into a Dataframe
-        # We use io.StringIO to turn the text into a 'file' that Pandas can read
         df = pd.read_csv(
             io.StringIO(raw_data), 
             engine='python', 
             on_bad_lines='warn'
         )
         
-        # Step D: Standard Cleaning
+        # Data Cleaning
         df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
         df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce')
         df['IELTS_Num'] = df['English Requirement'].str.extract(r'(\d+\.\d+|\d+)').astype(float).fillna(0)
         
         return df
-
     except Exception as e:
         st.error(f"Critical Sync Error: {e}")
         return None
@@ -54,13 +45,15 @@ def get_recommendations(df, user_input):
         score = 0
         title = str(row['Diploma Title']).lower()
         
+        # English Eligibility
         if user_input['student_ielts'] < row['IELTS_Num']:
             continue 
 
+        # Keyword Search
         if user_input['keyword'] and any(k in title for k in user_input['keyword'].lower().split()):
             score += 60
 
-        # Field matching logic
+        # Field Mapping
         requested_subject = user_input['subject'].lower()
         if requested_subject != "n/a":
             subj_keywords = [requested_subject]
@@ -75,7 +68,7 @@ def get_recommendations(df, user_input):
         if user_input['mode'] != "N/A" and row['Delivery Mode'] != user_input['mode']:
             continue
 
-        # Budget Tier logic
+        # Budget logic
         cost = row['Total Tuition Cost (USD)']
         if user_input['tier'] != "N/A" and cost > tier_limits.get(user_input['tier'], 999999):
             continue
@@ -84,7 +77,6 @@ def get_recommendations(df, user_input):
         monthly_cost = cost / duration if duration > 0 else 0
         visa_score = row['Visa Success Score']
         
-        # Badge Colors
         if visa_score >= 8: badge_color = "#22C55E" 
         elif visa_score >= 5: badge_color = "#F59E0B" 
         else: badge_color = "#EF4444" 
@@ -103,6 +95,13 @@ def get_recommendations(df, user_input):
 # --- 3. UI LAYOUT ---
 def main():
     st.set_page_config(page_title="EdPro Navigator", layout="centered", page_icon="🛡️")
+
+    # --- NEW: IMMEDIATE STATE INITIALIZATION ---
+    # We move this to the very top of the function to prevent "KeyErrors"
+    if 'visible_count' not in st.session_state:
+        st.session_state.visible_count = 5
+    if 'current_results' not in st.session_state:
+        st.session_state.current_results = []
 
     st.markdown("""
         <style>
@@ -136,14 +135,14 @@ def main():
         with c4: in_tier = st.selectbox("💰 Budget", ["N/A", "Tier 1", "Tier 2", "Tier 3", "Tier 4"])
         
         if st.button("RUN MATCHING AGENT"):
-            st.session_state.visible_count = 5
+            st.session_state.visible_count = 5 # Reset view count on new search
             st.session_state.current_results = get_recommendations(df, {
                 'keyword': in_keyword, 'subject': in_subject, 'student_ielts': in_ielts, 
                 'tier': in_tier, 'type': in_type, 'mode': in_mode
             })
 
     # --- RESULTS ---
-    if 'current_results' in st.session_state and st.session_state.current_results:
+    if st.session_state.current_results:
         recs = st.session_state.current_results
         st.markdown(f"<h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)
         
@@ -167,7 +166,8 @@ def main():
             if st.button("SHOW 5 MORE"):
                 st.session_state.visible_count += 5
                 st.rerun()
+    elif 'current_results' in st.session_state and st.session_state.current_results == [] and 'run_clicked' in locals():
+        st.warning("No matches found. Try relaxing the filters.")
 
 if __name__ == "__main__":
-    if 'visible_count' not in st.session_state: st.session_state.visible_count = 5
     main()

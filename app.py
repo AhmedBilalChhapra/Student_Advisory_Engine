@@ -20,15 +20,18 @@ def load_data():
             st.error("Google Sheet is empty.")
             return None
             
-        df = pd.read_csv(
-            io.StringIO(raw_data), 
-            engine='python', 
-            on_bad_lines='warn'
-        )
+        df = pd.read_csv(io.StringIO(raw_data), engine='python', on_bad_lines='warn')
         
-        # Data Cleaning
-        df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].replace('[\$,]', '', regex=True).astype(float)
-        df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce')
+        # --- CHANGE 1: ROBUST COST CLEANING ---
+        # We now strip $, commas, and stars, then split by '-' to handle ranges like "600-900"
+        df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].astype(str).str.replace('[\$,\*]', '', regex=True)
+        df['Total Tuition Cost (USD)'] = df['Total Tuition Cost (USD)'].str.split('-').str[0].str.strip()
+        df['Total Tuition Cost (USD)'] = pd.to_numeric(df['Total Tuition Cost (USD)'], errors='coerce').fillna(0)
+        
+        # --- CHANGE 2: SAFER DURATION PARSING ---
+        df['Duration (Months)'] = pd.to_numeric(df['Duration (Months)'], errors='coerce').fillna(1)
+        
+        # English Score Parser
         df['IELTS_Num'] = df['English Requirement'].str.extract(r'(\d+\.\d+|\d+)').astype(float).fillna(0)
         
         return df
@@ -74,9 +77,11 @@ def get_recommendations(df, user_input):
             continue
 
         duration = row['Duration (Months)']
-        monthly_cost = cost / duration if duration > 0 else 0
-        visa_score = row['Visa Success Score']
+        # --- CHANGE 3: DIVISION GUARD ---
+        # Prevent crash if duration is accidentally set to 0 in the sheet
+        monthly_cost = cost / duration if duration > 0 else cost
         
+        visa_score = row['Visa Success Score']
         if visa_score >= 8: badge_color = "#22C55E" 
         elif visa_score >= 5: badge_color = "#F59E0B" 
         else: badge_color = "#EF4444" 
@@ -96,8 +101,6 @@ def get_recommendations(df, user_input):
 def main():
     st.set_page_config(page_title="EdPro Navigator", layout="centered", page_icon="🛡️")
 
-    # --- NEW: IMMEDIATE STATE INITIALIZATION ---
-    # We move this to the very top of the function to prevent "KeyErrors"
     if 'visible_count' not in st.session_state:
         st.session_state.visible_count = 5
     if 'current_results' not in st.session_state:
@@ -135,13 +138,12 @@ def main():
         with c4: in_tier = st.selectbox("💰 Budget", ["N/A", "Tier 1", "Tier 2", "Tier 3", "Tier 4"])
         
         if st.button("RUN MATCHING AGENT"):
-            st.session_state.visible_count = 5 # Reset view count on new search
+            st.session_state.visible_count = 5 
             st.session_state.current_results = get_recommendations(df, {
                 'keyword': in_keyword, 'subject': in_subject, 'student_ielts': in_ielts, 
                 'tier': in_tier, 'type': in_type, 'mode': in_mode
             })
 
-    # --- RESULTS ---
     if st.session_state.current_results:
         recs = st.session_state.current_results
         st.markdown(f"<h3 style='text-align: center;'>🏆 Top Matches</h3>", unsafe_allow_html=True)
@@ -166,8 +168,7 @@ def main():
             if st.button("SHOW 5 MORE"):
                 st.session_state.visible_count += 5
                 st.rerun()
-    elif 'current_results' in st.session_state and st.session_state.current_results == [] and 'run_clicked' in locals():
-        st.warning("No matches found. Try relaxing the filters.")
 
 if __name__ == "__main__":
     main()
+    
